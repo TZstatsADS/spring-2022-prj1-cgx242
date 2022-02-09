@@ -1,0 +1,392 @@
+---
+title: "Are Capitalism & Communism Philosophy?"
+author: "Gexin Chen"
+date: "2/2/2022"
+output: html_document
+---
+# 0. Introduction
+
+#### This notebook aims to explore the nature of Capitalism and Communism by comparing them with other modern philosophy theories.
+
+
+
+#### Dataset: The CSV file can be accessed from Kaggle: https://www.kaggle.com/vanvalkenberg/nlp-what-the-philosopher-said
+
+  
+    
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+# Set up & Load Libraries
+knitr::opts_chunk$set(echo = TRUE)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(dplyr)
+library(tidytext)
+library(knitr)
+library(tidyverse)
+library(topicmodels)
+library(reshape2)
+```
+
+```{r read data, include=FALSE}
+# Read In Data
+urlfile <- "../../data/philosophy_data.csv" 
+data <- read.csv(urlfile, as.is= TRUE)
+```
+
+
+```{r, include=FALSE}
+data %>% 
+  filter(school %in% c("communism", "capitalism")) %>%
+  summarise(max(original_publication_date), min(original_publication_date))
+# Subset of Data
+other_data <- data %>% 
+  filter(original_publication_date > 1750 & original_publication_date < 1950) %>%
+  filter(school != "communism" & school != "capitalism") %>%
+  select(title, author, school, sentence_spacy) 
+cleaned_data <- data %>%
+  filter(school %in% c("communism", "capitalism")) %>%
+  select(title, author, school, sentence_spacy) 
+capitalism <- cleaned_data %>%
+  filter(school == "capitalism")
+communism <- cleaned_data %>%
+  filter(school == "communism")
+```
+      
+"Are Communism and Capitalism concluded as theories of philosophy or sociology?" It has become an extremely common question for those without enough exposure to the area of philosophy, including myself. This question has been bothering me for a really long time.  
+Even though I cannot figure out this question as a philosophor or sociologist, I will try to use data and analysis technics to find the answer as a data scientist.  
+From now, the works from capitalism and communism are called experiment group while the works from other modern philosphy school are annotated as control group.
+
+  
+  
+The philosophy works used for analysis are listed below:
+(Since all knowledge and understanding may be dynamic and changing over time, I will only investigate the philosophy works during the same period.)
+```{r, echo=FALSE}
+data %>% 
+  filter(original_publication_date > 1750 & original_publication_date < 1950) %>%
+  distinct(title,author,school)
+```
+
+  
+  
+This notebook can be divided as three parts:   
+1. Basic Text Mining and Sentiment Analysis;  
+2. Word Frequency Analysis;  
+3. Conclusion.
+\newpage
+# 1. Basic Text Mining and Sentiment Analysis
+
+```{r text processing,include=FALSE}
+corpus <- VCorpus(VectorSource(cleaned_data$sentence_spacy)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, character(0)) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) 
+tdm.all <- TermDocumentMatrix(corpus) # Return TDM Format
+tdm.tidy <- tidy(tdm.all) # Return Tidy Text Format
+tdm.overall <- summarise(group_by(tdm.tidy,term),sum(count)) # Return Summary For Future Use
+```
+
+```{r, include=FALSE}
+com_corpus <- VCorpus(VectorSource(communism$sentence_spacy)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeWords, character(0)) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(stripWhitespace)
+com_tdm.all <- TermDocumentMatrix(com_corpus)
+com_tdm.tidy <- tidy(com_tdm.all)
+com_tdm.overall <- com_tdm.tidy %>%
+  group_by(term) %>%
+  summarise(sum(count))
+```
+
+```{r,include=FALSE, warning=FALSE}
+cap_corpus <- VCorpus(VectorSource(capitalism$sentence_spacy)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeWords, character(0)) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(removeNumbers)
+cap_tdm.all <- TermDocumentMatrix(cap_corpus)
+cap_tdm.tidy <- tidy(cap_tdm.all)
+cap_tdm.overall <- cap_tdm.tidy %>%
+  group_by(term) %>%
+  summarise(sum(count))
+```
+
+```{r,include=FALSE}
+other_corpus <- VCorpus(VectorSource(other_data$sentence_spacy)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeWords, character(0)) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) %>% 
+  tm_map(removeNumbers)
+other.tdm.all <- TermDocumentMatrix(other_corpus)
+other.tdm.tidy <- tidy(other.tdm.all)
+other.tdm.overall <- other.tdm.tidy %>%
+  group_by(term) %>%
+  summarise(sum(count))
+```
+
+Before diving into the analysis of word frequency, we would like to do some basic exploratory data analysis. 
+
+```{r,echo=FALSE}
+cleaned_data %>%
+  rbind(other_data) %>%
+  group_by(school) %>%
+  summarise(n = n_distinct(title)) %>%
+  ggplot() +
+  geom_col(aes(x = n, y = school)) +
+  labs(title = "Work Frequency by Schools")
+```
+
+The number of philosophy works from different schools is not evenly distributed: there are three works from capitalism, communism while seven works are published from germam idealism.
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+sentiment <- get_sentiments("bing") %>% 
+  rename(term = word) 
+all_sentiment <- tdm.tidy %>%
+  inner_join(sentiment)
+all_sentiment %>%
+  group_by(sentiment) %>%
+  count() %>%
+  ggplot() +
+  geom_col(aes(sentiment,n )) +
+  ggtitle("Sentiment Distribution for Cap & Com") 
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+other_sentiment <- other.tdm.tidy %>%
+  inner_join(sentiment)
+other_sentiment %>%
+  group_by(sentiment) %>%
+  count() %>%
+  ggplot() +
+  geom_col(aes(sentiment,n )) +
+  ggtitle("Sentiment Distribution for Others")
+```
+
+By comparing the bar plots from experiment and control groups, we can find out that the sentiment distributions from two groups are almost the same: the overall sentiment is composed of 50 ~ 60 percent of positive sentiment and 40 ~ 50 percent of negative sentiment.   
+\newpage
+# 2. Word Frequency Analysis
+## Capitalism & Communism
+
+
+```{r, fig.height=6, fig.width=6, echo=FALSE}
+wordcloud(tdm.overall$term, tdm.overall$`sum(count)`,
+          scale=c(5,0.5),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Reds"))
+```
+
+```{r visualization, echo=FALSE}
+tdm.overall %>%
+  arrange(desc(tdm.overall$`sum(count)`)) %>%
+  filter(`sum(count)` > 2200) %>%
+  mutate(term =reorder(term, `sum(count)`)) %>%
+  ggplot() +
+  geom_col(aes(x = `sum(count)`, y = term), fill = "red") +
+  labs(x = "Frequency", title = "Words Frequency for Cap & Com")
+```
+  
+From plots above, it can be noticed that words like labour, money, capital, value and price occur with the highest frequency.  
+However, it could be possible that these words' high frequency is solely caused by Communism work or Capitalism work. Therefore, we also divide up Communism work and Capitalism work to avoid discrepencies.
+
+
+
+
+
+
+
+```{r, fig.height=6, fig.width=6,echo=FALSE}
+wordcloud(com_tdm.overall$term, com_tdm.overall$`sum(count)`,
+          scale=c(5,0.5),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+```
+
+```{r,echo=FALSE}
+com_tdm.overall %>%
+  arrange(desc(`sum(count)`)) %>%
+  filter(`sum(count)` > 910) %>%
+  mutate(term = reorder(term, `sum(count)`)) %>%
+  ggplot() +
+  geom_col(aes(`sum(count)`, term), fill = "blue") +
+  labs(x = "Frequency", title = "Words Frequency for Communism")
+```  
+  
+
+
+
+
+```{r, fig.height=6, fig.width=6,echo=FALSE,warning=FALSE,message=FALSE}
+wordcloud(cap_tdm.overall$term, cap_tdm.overall$`sum(count)`,
+          scale=c(5,0.3),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Greens"))
+```
+
+```{r,echo=FALSE}
+cap_tdm.overall %>% 
+  arrange(desc(`sum(count)`)) %>%
+  filter(`sum(count)` > 1595) %>%
+  mutate(term = reorder(term, `sum(count)`)) %>%
+  ggplot() +
+  geom_col(aes(`sum(count)`, term), fill = "green")+
+  labs(x = "Frequency", title = "Words Frequency for Capitalism")
+```
+  
+It is safe to conclude now that the most frequent words in Communism & Capitalism work include labour, money, capital and so on.
+
+
+## Rest of Modern Philosophy
+
+
+
+```{r, fig.height=6, fig.width=6,echo=FALSE,warning=FALSE,echo=FALSE}
+wordcloud(other.tdm.overall$term, other.tdm.overall$`sum(count)`,
+          scale=c(6,0.5),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Purples"))
+```
+
+```{r,echo=FALSE}
+other.tdm.overall %>%
+  arrange(desc(`sum(count)`)) %>%
+  slice_max(`sum(count)`, n = 10) %>%
+  mutate(term = reorder(term, `sum(count)`)) %>%
+  ggplot() +
+  geom_col(aes(`sum(count)`, term), fill = "purple") +
+  labs(x = "Frequency", title = "Words Frequency for Others")
+```
+
+In other modern philosophy works, the most frequent words including one, must, will, can etc. are not informative.  
+Therefore, we need further process the data in order for more information.
+```{r,include=FALSE}
+other_refined_corpus <- VCorpus(VectorSource(other_data$sentence_spacy)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeWords, character(0)) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) %>% 
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c("will", "one", "can", "must", "also", "even", "thus"))
+refined.tdm.all <- TermDocumentMatrix(other_refined_corpus)
+refined.tdm.tidy <- tidy(refined.tdm.all)
+refined.tdm.overall <- refined.tdm.tidy %>%
+  group_by(term) %>%
+  summarise(sum(count))
+```
+
+```{r, fig.height=6, fig.width=6,echo=FALSE,warning=FALSE,echo=FALSE}
+wordcloud(refined.tdm.overall$term, refined.tdm.overall$`sum(count)`,
+          scale=c(5,0.3),
+          max.words=100,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Purples"))
+```
+
+```{r,echo=FALSE}
+refined.tdm.overall %>%
+  arrange(desc(`sum(count)`)) %>%
+  slice_max(`sum(count)`, n = 10) %>%
+  mutate(term = reorder(term, `sum(count)`)) %>%
+  ggplot() +
+  geom_col(aes(`sum(count)`, term), fill = "purple") +
+  labs(x = "Frequency", title = "Refined Words Frequency for Others")
+```
+
+After removing uninformative words in datasets, it can found that the most frequent words include nature, reason, concept and so on.  
+It can be said with certainty that the content from Communism and Capitalism work is different from other modern philosophy works.  
+
+
+\newpage
+# 3. Conclusion
+From the result above, three valid conclusions can be made:
+#### 1. The sentiment distributions from experiment group and control group are significantly the same. Therefore, the works from both communism and capitalism match the definition of philosophy: the study of ideas about nature, truth, knowledge etc.  
+#### 2. From words frequency analysis, the topics from communism and capitalism mainly focus on social and economic problems, while works from other modern philosophy schools focus on mind and humanity. There is a huge difference in topics between experiment and control groups.  
+#### 3. Capitalism & Communism can be concluded as overlapping theories from both sociology and philosophy.
+
+```{r,include=FALSE}
+combined_data <- data %>% 
+  filter(original_publication_date > 1750 & original_publication_date < 1950) %>%
+  filter(school %in% c("communism", "capitalism", "analytic", "phenomenology")) %>%
+  select(title, author, school, sentence_spacy)
+combined_corpus <- VCorpus(VectorSource(combined_data$sentence_spacy)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, character(0)) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(removeWords, c("one", "can", "will", "must", "also", "thus"))
+combined_tdm <- TermDocumentMatrix(combined_corpus)
+combined_tidy <- tidy(combined_tdm)
+combined_dtm <- cast_dtm(combined_tidy, document, term, count)
+combined_lda <- LDA(combined_dtm, k = 2, control = list(seed = 1234))
+combined_topic <- tidy(combined_lda, matrix = "beta")
+combined_top_terms <- combined_topic %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>%
+  ungroup() %>%
+  arrange(topic, desc(beta))
+combined_top_terms
+```
+
+```{r,include=FALSE}
+nietzsche_data <- data %>% 
+  filter(original_publication_date > 1750 & original_publication_date < 1950) %>%
+  filter(school %in% c("communism", "capitalism", "nietzsche")) %>%
+  select(title, author, school, sentence_spacy)
+nietzsche_corpus <- VCorpus(VectorSource(nietzsche_data$sentence_spacy)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, character(0)) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(removeWords, c("one", "can", "will", "must", "also", "thus"))
+nietzsche_tdm <- TermDocumentMatrix(nietzsche_corpus)
+nietzsche_tidy <- tidy(nietzsche_tdm)
+nietzsche_dtm <- cast_dtm(nietzsche_tidy, document, term, count)
+nietzsche_lda <- LDA(nietzsche_dtm, k = 2, control = list(seed = 1234))
+nietzsche_topic <- tidy(nietzsche_lda, matrix = "beta")
+nietzsche_top_terms <- nietzsche_topic %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>%
+  ungroup() %>%
+  arrange(topic, desc(beta))
+nietzsche_top_terms
+```
+
+
+
+
+
+
+
+
+
